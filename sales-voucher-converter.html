@@ -1,5 +1,11 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>매출전표 변환기</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root {
     --bg: #eef2ee;
@@ -165,7 +171,7 @@
   .step-body { padding: 4px 24px 24px; }
   .step[data-locked="true"] { opacity: 0.45; pointer-events: none; }
 
-  label.field {
+  label.field, div.field {
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -194,6 +200,25 @@
     resize: vertical;
     line-height: 1.5;
   }
+  .dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    text-align: center;
+    padding: 32px 20px;
+    border: 1.5px dashed var(--line-strong);
+    border-radius: 12px;
+    background: var(--surface-2);
+    cursor: pointer;
+    transition: border-color 0.12s ease, background 0.12s ease;
+  }
+  .dropzone:hover, .dropzone.drag { border-color: var(--accent); background: var(--accent-soft); }
+  .dropzone .dz-icon { font-size: 26px; }
+  .dropzone .dz-text { font-size: 13.5px; color: var(--ink-soft); }
+  .dropzone .dz-text b { color: var(--accent-strong); }
+  .dropzone .dz-name { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink); margin-top: 4px; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .row.between { justify-content: space-between; }
   .row.top-gap { margin-top: 12px; }
@@ -340,6 +365,8 @@
     * { transition: none !important; }
   }
 </style>
+</head>
+<body>
 
 <div class="page">
   <header class="hero">
@@ -352,27 +379,47 @@
   <section class="step" id="step1">
     <div class="step-head">
       <span class="step-num">1</span>
-      <h2>매출 데이터 붙여넣기</h2>
-      <span class="hint">엑셀에서 복사한 표를 그대로 붙여넣으세요 (탭 구분)</span>
+      <h2>매출 데이터 업로드</h2>
+      <span class="hint">엑셀(.xlsx/.xls) 또는 CSV 파일을 올려주세요</span>
     </div>
     <div class="step-body">
-      <label class="field">
-        데이터 (첫 행 = 헤더 권장)
-        <textarea id="pasteArea" placeholder="거래일자&#9;거래처명&#9;사업자번호&#9;품목&#9;공급가액&#9;부가세&#9;증빙유형&#9;결제구분&#9;적요
-2026-08-03&#9;㈜대한상사&#9;123-45-67890&#9;제품매출&#9;1,000,000&#9;100,000&#9;세금계산서&#9;외상&#9;8월 정기납품"></textarea>
-      </label>
-      <div class="row top-gap">
-        <label class="field" style="flex-direction: row; align-items: center; gap: 8px; font-weight: 500;">
-          <input type="checkbox" id="hasHeader" checked style="width:16px;height:16px;">
-          첫 번째 줄은 헤더입니다
-        </label>
-        <div style="margin-left:auto; display:flex; gap:10px;">
-          <button class="subtle" id="loadSample" type="button">샘플 데이터 불러오기</button>
-          <button class="subtle" id="clearInput" type="button">지우기</button>
-          <button class="primary" id="parseBtn" type="button">다음: 열 매핑 →</button>
+      <div class="field">
+        매출 파일
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+          <span class="dz-icon">📄</span>
+          <span class="dz-text"><b>클릭해서 파일 선택</b> 또는 이 영역으로 드래그 앤 드롭</span>
+          <span class="dz-name" id="fileName"></span>
         </div>
       </div>
-      <p class="helptext">쉼표(,) 또는 탭(Tab) 구분 텍스트를 인식합니다. 엑셀에서 범위를 선택해 그대로 Ctrl+C / Ctrl+V 하면 됩니다.</p>
+      <p class="helptext">엑셀에서 매출 시트를 그대로 저장한 .xlsx 파일이나 .csv 파일이면 됩니다. 첫 번째 시트를 읽습니다.</p>
+
+      <div class="row top-gap" style="align-items:center; gap:10px;">
+        <span class="helptext" style="margin:0;">파일이 없으면 바로 테스트해 볼 수 있어요:</span>
+        <button class="subtle" id="loadSample" type="button">샘플 데이터 불러오기</button>
+      </div>
+
+      <details style="margin-top:16px;">
+        <summary style="cursor:pointer; font-size:13px; color:var(--ink-soft); font-weight:500;">파일 대신 표를 직접 붙여넣기</summary>
+        <div class="row top-gap" style="flex-direction:column; align-items:stretch;">
+          <label class="field">
+            데이터 (첫 행 = 헤더 권장)
+            <textarea id="pasteArea" placeholder="거래일자&#9;거래처명&#9;사업자번호&#9;품목&#9;공급가액&#9;부가세&#9;증빙유형&#9;결제구분&#9;적요
+2026-08-03&#9;㈜대한상사&#9;123-45-67890&#9;제품매출&#9;1,000,000&#9;100,000&#9;세금계산서&#9;외상&#9;8월 정기납품"></textarea>
+          </label>
+          <div class="row top-gap">
+            <button class="subtle" id="clearInput" type="button">지우기</button>
+            <button class="primary" id="parseBtn" type="button" style="margin-left:auto;">이 텍스트로 다음 단계 →</button>
+          </div>
+        </div>
+      </details>
+
+      <div class="row top-gap">
+        <label class="field" style="flex-direction: row; align-items: center; gap: 8px; font-weight: 500; margin:0;">
+          <input type="checkbox" id="hasHeader" checked style="width:16px;height:16px;">
+          첫 번째 줄(행)은 헤더입니다
+        </label>
+      </div>
     </div>
   </section>
 
@@ -622,8 +669,27 @@
     "2026-08-12\t㈜신성전자\t105-81-33445\t용역매출\t4,200,000\t420,000\t세금계산서\t외상\t8월 용역대금\n" +
     "2026-08-14\t잡수입\t\t배당금수익\t80,000\t\t일반전표\t현금\t보통예금 이자수익";
 
+  function applyGrid(grid, sourceLabel){
+    if (!grid || !grid.length){ toast('인식할 수 있는 데이터가 없습니다'); return; }
+    var hasHeader = $('hasHeader').checked;
+    var width = Math.max.apply(null, grid.map(function(r){ return r.length; }));
+    var headers = hasHeader ? grid[0] : [];
+    while (headers.length < width) headers.push('열 ' + (headers.length+1));
+    var dataRows = hasHeader ? grid.slice(1) : grid;
+
+    state.headers = headers.map(function(h,i){ return (h && String(h).trim()) ? String(h).trim() : ('열 ' + (i+1)); });
+    state.rows = dataRows;
+
+    buildMapTable();
+    unlock('step2');
+    unlock('step3');
+    $('mapHint').textContent = dataRows.length + '행 인식됨' + (sourceLabel ? ' (' + sourceLabel + ')' : '');
+    document.getElementById('step2').scrollIntoView({behavior:'smooth', block:'start'});
+  }
+
   $('loadSample').addEventListener('click', function(){
     $('pasteArea').value = SAMPLE;
+    applyGrid(parseInput(SAMPLE), '샘플 데이터');
     toast('샘플 데이터를 불러왔습니다');
   });
   $('clearInput').addEventListener('click', function(){
@@ -633,24 +699,46 @@
   $('parseBtn').addEventListener('click', function(){
     var text = $('pasteArea').value;
     if (!text.trim()){ toast('붙여넣을 데이터가 없습니다'); return; }
-    var grid = parseInput(text);
-    if (!grid.length){ toast('인식할 수 있는 데이터가 없습니다'); return; }
-
-    var hasHeader = $('hasHeader').checked;
-    var width = Math.max.apply(null, grid.map(function(r){ return r.length; }));
-    var headers = hasHeader ? grid[0] : [];
-    while (headers.length < width) headers.push('열 ' + (headers.length+1));
-    var dataRows = hasHeader ? grid.slice(1) : grid;
-
-    state.headers = headers.map(function(h,i){ return (h && h.trim()) ? h.trim() : ('열 ' + (i+1)); });
-    state.rows = dataRows;
-
-    buildMapTable();
-    unlock('step2');
-    unlock('step3');
-    $('mapHint').textContent = dataRows.length + '행 인식됨';
-    document.getElementById('step2').scrollIntoView({behavior:'smooth', block:'start'});
+    applyGrid(parseInput(text), '직접 붙여넣기');
   });
+
+  // ---------- file upload (excel/csv) ----------
+  var dropzone = $('dropzone');
+  var fileInput = $('fileInput');
+
+  dropzone.addEventListener('click', function(){ fileInput.click(); });
+  dropzone.addEventListener('dragover', function(e){ e.preventDefault(); dropzone.classList.add('drag'); });
+  dropzone.addEventListener('dragleave', function(){ dropzone.classList.remove('drag'); });
+  dropzone.addEventListener('drop', function(e){
+    e.preventDefault();
+    dropzone.classList.remove('drag');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', function(e){
+    if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+  });
+
+  function handleFile(file){
+    $('fileName').textContent = '선택된 파일: ' + file.name;
+    var reader = new FileReader();
+    reader.onload = function(e){
+      try {
+        var data = new Uint8Array(e.target.result);
+        var wb = XLSX.read(data, { type: 'array', codepage: 65001 });
+        var sheetName = wb.SheetNames[0];
+        var sheet = wb.Sheets[sheetName];
+        var grid = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+        grid = grid.filter(function(row){ return row.some(function(c){ return String(c).trim() !== ''; }); });
+        if (!grid.length){ toast('파일에서 데이터를 찾지 못했습니다'); return; }
+        applyGrid(grid, file.name);
+        toast(file.name + ' 불러오기 완료');
+      } catch (err){
+        toast('파일을 읽는 중 오류가 발생했습니다: ' + (err && err.message ? err.message : '알 수 없는 오류'));
+      }
+    };
+    reader.onerror = function(){ toast('파일을 읽지 못했습니다'); };
+    reader.readAsArrayBuffer(file);
+  }
 
   function guessField(header){
     var h = header.toLowerCase().replace(/\s/g,'');
@@ -874,32 +962,24 @@
   }
 
   // ---------- step 5: export ----------
-  var downloadsCap = (window.claude && window.claude.use) ? window.claude.use('downloads') : Promise.resolve(null);
-
   function fnameStamp(){
     var d = new Date();
     return d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
   }
 
-  async function saveCSV(filename, content){
-    var downloads = await downloadsCap;
-    if (!downloads){
-      toast('이 화면에서는 자동 다운로드를 지원하지 않습니다. 아래 복사 기능을 사용해 주세요.');
-      return;
-    }
+  function saveCSV(filename, content){
     try {
-      await downloads.save({ filename: filename, data: content });
-      toast(filename + ' 저장되었습니다');
+      var blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+      toast(filename + ' 다운로드되었습니다');
     } catch (e){
-      if (e && e.code === 'extension_not_enabled'){
-        try {
-          var txtName = filename.replace(/\.csv$/,'.txt');
-          await downloads.save({ filename: txtName, data: content });
-          toast(txtName + ' (텍스트) 로 저장되었습니다');
-          return;
-        } catch(e2){ /* fall through */ }
-      }
-      if (e && e.code === 'declined'){ toast('다운로드가 취소되었습니다'); return; }
       toast('다운로드에 실패했습니다: ' + (e && e.message ? e.message : '알 수 없는 오류'));
     }
   }
@@ -937,3 +1017,5 @@
 
 })();
 </script>
+</body>
+</html>

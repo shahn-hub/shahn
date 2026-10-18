@@ -244,12 +244,56 @@ function parseDateParts(raw) {
   if (raw instanceof Date) {
     return { year: raw.getFullYear(), month: raw.getMonth() + 1, day: raw.getDate() };
   }
-  const s = String(raw).trim();
-  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if (m) return { year: +m[1], month: +m[2], day: +m[3] };
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
-  return { year: '', month: '', day: '' };
+  const none = { year: '', month: '', day: '' };
+  const valid = (y, mo, d) => y >= 1900 && y <= 2200 && mo >= 1 && mo <= 12 && d >= 1 && d <= 31;
+  const ok = (y, mo, d) => valid(y, mo, d) ? { year: y, month: mo, day: d } : none;
+
+  // 엑셀 날짜(일련번호) — 셀 서식이 날짜면 숫자로 들어온다
+  if (typeof raw === 'number') {
+    if (raw >= 19000101 && raw <= 22001231) {          // 20260701 형태의 숫자
+      return ok(Math.floor(raw / 10000), Math.floor(raw / 100) % 100, raw % 100);
+    }
+    if (raw >= 25569 && raw < 2958466) {               // 일련번호 (1970-01-01 ~ 9999-12-31)
+      const p = XLSX.SSF.parse_date_code(raw);
+      return p ? ok(p.y, p.m, p.d) : none;
+    }
+    return none;
+  }
+
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return none;
+
+  // 2026-07-01 / 2026/7/1 / 2026.07.01 / 2026. 7. 1. / 2026년 7월 1일 / 2026-07-01T13:45
+  let m = s.match(/^(\d{4})\s*[-\/.년]\s*(\d{1,2})\s*[-\/.월]\s*(\d{1,2})/);
+  if (m) return ok(+m[1], +m[2], +m[3]);
+
+  // 20260701 또는 20260701134539
+  m = s.match(/^(\d{4})(\d{2})(\d{2})(?:\D|\d{6}|$)/);
+  if (m) return ok(+m[1], +m[2], +m[3]);
+
+  // 엑셀 일련번호가 글자로 저장된 경우 "46204" / "46204.573"
+  m = s.match(/^\d{5}(?:\.\d+)?$/);
+  if (m) {
+    const p = XLSX.SSF.parse_date_code(parseFloat(s));
+    if (p) return ok(p.y, p.m, p.d);
+  }
+
+  // 7/1/2026, 07-01-2026, 7.1.2026 (미국식 월/일/년). 앞 숫자가 12 초과면 일/월/년으로 해석
+  m = s.match(/^(\d{1,2})\s*[-\/.]\s*(\d{1,2})\s*[-\/.]\s*(\d{4})/);
+  if (m) {
+    let a = +m[1], b = +m[2];
+    if (a > 12 && b <= 12) return ok(+m[3], b, a);
+    return ok(+m[3], a, b);
+  }
+
+  // 1-Jul-2026, 1 July 2026, Jul 1, 2026
+  const MON = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
+  m = s.match(/^(\d{1,2})[\s-]*([A-Za-z]{3})[A-Za-z]*[\s,.-]*(\d{4})/);
+  if (m && MON[m[2].toLowerCase()]) return ok(+m[3], MON[m[2].toLowerCase()], +m[1]);
+  m = s.match(/^([A-Za-z]{3})[A-Za-z]*\.?\s+(\d{1,2})[\s,.-]+(\d{4})/);
+  if (m && MON[m[1].toLowerCase()]) return ok(+m[3], MON[m[1].toLowerCase()], +m[2]);
+
+  return none;
 }
 
 function toVendor(from) {
@@ -294,9 +338,11 @@ function handleFile(file) {
         return;
       }
 
-      const dataRows = rows.slice(1).filter(r => r.length && r[dateIdx] !== '' && r[dateIdx] != null);
+      const filled = v => v !== '' && v != null;
+      const dataRows = rows.slice(1).map((r, k) => ({ r, row: k + 2 }))
+        .filter(x => x.r.length && (filled(x.r[dateIdx]) || filled(x.r[fromIdx])));
 
-      let results = dataRows.map((r, i) => {
+      let results = dataRows.map(({ r, row }, i) => {
         const { year, month, day } = parseDateParts(r[dateIdx]);
         const profit = Number(r[profitIdx]) || 0;
         const supply = Math.round(profit / 1.1);
@@ -307,8 +353,11 @@ function handleFile(file) {
         const profitDerived = amount - costRounded;
         const vendor = toVendor(r[fromIdx]);
         const fromRaw = String(r[fromIdx] == null ? '' : r[fromIdx]).trim();
-        return { year, month, day, vendor, supply, vat, amount, costRounded, profitDerived, fromRaw, _i: i };
-      }).filter(r => r.year !== '');
+        return { year, month, day, vendor, supply, vat, amount, costRounded, profitDerived, fromRaw, _i: i, _row: row };
+      });
+      // 날짜를 읽지 못한 행은 조용히 버리지 않고 엑셀 행 번호를 알려준다
+      const skipped = results.filter(r => r.year === '').map(r => r._row);
+      results = results.filter(r => r.year !== '');
 
       results.sort((a, b) => {
         const ka = a.year * 10000 + a.month * 100 + a.day;
@@ -319,7 +368,12 @@ function handleFile(file) {
       computed = results;
       renderVoucher(results);
       renderJournal(results);
-      setStatus('총 ' + results.length + '건 변환 완료. 아래 내용을 확인한 뒤 각각 다운로드하세요.', 'ok');
+      if (skipped.length) {
+        setStatus('총 ' + results.length + '건 변환, 날짜를 읽지 못해 제외된 행 ' + skipped.length + '건 (엑셀 ' +
+          skipped.slice(0, 10).join(', ') + (skipped.length > 10 ? ' 외' : '') + '행). DATE 열 값을 확인해주세요.', 'error');
+      } else {
+        setStatus('총 ' + results.length + '건 변환 완료. 아래 내용을 확인한 뒤 각각 다운로드하세요.', 'ok');
+      }
       resultSection.style.display = 'block';
     } catch (err) {
       console.error(err);

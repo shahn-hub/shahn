@@ -122,6 +122,8 @@ div.fi-ro { display: flex; align-items: flex-end; min-height: 3mm; overflow: vis
 .hf-sheet .ov-chk { position: absolute; width: 3.1mm; height: 3.5mm; display: flex; align-items: center; justify-content: center;
   font-size: 10pt; font-weight: 700; line-height: 1; color: #000; pointer-events: none; z-index: 2; }
 .hf-sheet .ov-stamps { position: absolute; display: inline-flex; gap: 1mm; z-index: 2; }
+/* 원본에 인쇄된 글자를 흰 칸으로 가린다 (화면·PDF 저장 모두) */
+.hf-sheet .ov-white { position: absolute; background: #fff; pointer-events: none; z-index: 1; }
 /* 원본에 □/■ 가 미리 인쇄된 칸: 흰 칸으로 덮고 선택한 칸만 ■ 로 다시 그린다 */
 .hf-sheet .ov-sq { position: absolute; width: 3.6mm; height: 3.6mm; background: #fff; display: flex; align-items: center; justify-content: center;
   pointer-events: none; z-index: 2; }
@@ -527,6 +529,8 @@ div.fi-ro { display: flex; align-items: flex-end; min-height: 3mm; overflow: vis
   <span class="stamp-zone hint" id="lf_sz_agency" onclick="toggleStamp('lf_sz_agency')" title="업무대행기관 법인 도장"><canvas id="lf_sc_agency" width="100" height="100"></canvas></span>
 </div>
 <!-- 하단 "____ 귀하" 칸은 비워 둔다 (요청에 따라 이름 자동 입력 안 함) -->
+<!-- 상단 "대한세무법인 보험사무대행기관 대표 귀하" 의 '대한세무법인' 글자를 가린다 (밑줄은 남김) -->
+<div class="ov-white" style="left:27.8mm;top:166.4mm;width:27.3mm;height:4.55mm;"></div>
 </div>
 </div>
 </div></div>
@@ -1533,6 +1537,9 @@ function collectSheetItems(sheet) {
   const rel = r => ({ left: r.left - S.left, top: r.top - S.top, right: r.right - S.left, bottom: r.bottom - S.top,
                       width: r.width, height: r.height });
   const covers = [], texts = [], checks = [], stamps = [], squares = [];
+
+  // 원본 인쇄 글자를 가리는 흰 칸
+  sheet.querySelectorAll('.ov-white').forEach(el => { if (isShown(el)) covers.push(rel(el.getBoundingClientRect())); });
 
   // 0) 원본의 □/■ 칸: 흰 칸으로 덮은 뒤 □ 또는 ■ 를 다시 그린다
   sheet.querySelectorAll('.ov-sq').forEach(el => {
